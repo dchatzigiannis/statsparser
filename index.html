@@ -1203,7 +1203,7 @@ function nba_parseESPN(raw) {
   const isStatRow = line => {
     const parts = line.split('\t');
     if (parts.length < 5) return false;
-    return /^\d+$/.test(parts[0]) && /^\d+$/.test(parts[1]) && /^\d+-\d+$/.test(parts[2]);
+    return /^(\d+|--)$/.test(parts[0]) && /^\d+$/.test(parts[1]) && /^\d+-\d+$/.test(parts[2]);
   };
   const isDNP = line => /^DNP/i.test(line);
   const isNumber = line => /^#\d+$/.test(line);
@@ -2079,7 +2079,7 @@ function wnba_parseESPN(raw) {
   const isStatRow = line => {
     const parts = line.split('\t');
     if (parts.length < 5) return false;
-    return /^\d+$/.test(parts[0]) && /^\d+$/.test(parts[1]) && /^\d+-\d+$/.test(parts[2]);
+    return /^(\d+|--|-)$/.test(parts[0]) && /^\d+$/.test(parts[1]) && /^\d+-\d+$/.test(parts[2]);
   };
   const isTeamTotals = line => {
     const parts = line.split('\t');
