@@ -387,6 +387,7 @@ textarea::placeholder{color:var(--muted)}
 .p-stat.good{color:var(--green)}
 .p-stat.high{color:var(--gold)}
 .p-stat.mid{color:var(--orange)}
+.p-stat.void{color:var(--muted);text-decoration:line-through;opacity:.6}
 .empty-state{padding:14px 16px;font-size:13px;color:var(--muted);font-family:'IBM Plex Mono',monospace;font-style:italic}
 .divider{height:1px;background:rgba(255,255,255,.05);margin:2px 14px}
 
@@ -2455,7 +2456,7 @@ function mlb_parseMLB(raw) {
   const isTeamAbbr  = l => /^[A-Z]{2,3}$/.test(l);
   const isStatJunk  = l => /\b(AB|RBI|OBP|SLG|AVG)\b/.test(l); // stat header leaked into name
   const cleanName   = l => l.replace(/\s+(AB|R\b|H\b|RBI|HR|BB|K\b|AVG|OBP|SLG).*$/,'').trim();
-  const isName      = l => !isStatJunk(l) && /^[A-Z\u00C0-\u024F][a-zA-Z\u00C0-\u024F'.]+(\s+[A-Za-z\u00C0-\u024F'.]+)+$/.test(l.normalize('NFC')) && l.length > 3;
+  const isName      = l => !isStatJunk(l) && /^[A-Z\u00C0-\u024F][a-zA-Z\u00C0-\u024F'\.\-]+(\s+[A-Za-z\u00C0-\u024F'\.\-]+)+$/.test(l.normalize('NFC')) && l.length > 3;
 
   // ── Teams & scores ──────────────────────────────────────────────────────────
   const isNavJunk = l => /^(Skip to|Gamecast|Box Score|Play-by-Play|Videos|Recap|Watch ESPN|ESPN Fantasy|Full Scoreboard|Full Standings|MLB News|All MLB News|Game Information|Game Time|Umpires|Coverage|Attendance|Terms of Use|Privacy|Cookie|ESPN$|NFL$|NBA$|MLB$|NHL$|Soccer$|WNBA$|WWE$|More Sports|Fantasy$|Where to Watch)/i.test(l) || /^\d{1,2}\/\d{1,2}$/.test(l) || /^Final/.test(l) || /^MLB\.TV$/.test(l) || /^\d+-\d+$/.test(l);
@@ -2559,7 +2560,7 @@ function mlb_parseMLB(raw) {
   // Helper: parse player name + optional count from batting note entries
   // Handles: "Freeman", "T. Hernández", "Ohtani 2", "Bichette"
   const parseNotePlayer = str => {
-    const m = str.normalize('NFC').trim().match(/^([A-Za-z\u00C0-\u024F'\.]+(?:\s+[A-Za-z\u00C0-\u024F'\.]+){0,3}?)(?:\s+(\d+))?\s*\(/);
+    const m = str.normalize('NFC').trim().match(/^([A-Za-z\u00C0-\u024F'\.\-]+(?:\s+[A-Za-z\u00C0-\u024F'\.\-]+){0,3}?)(?:\s+(\d+))?\s*\(/);
     if (!m) return null;
     return { name: m[1].trim(), count: m[2] ? parseInt(m[2]) : 1 };
   };
@@ -2642,14 +2643,22 @@ function mlb_parseMLB(raw) {
 
     let i = hpos + 1;
     const names = [];
+    const isStarter = [];
+    let lastWasSub = false;
     while (i < lines.length) {
       const l = lines[i];
       if (mlbIsStatRow(l) || l.toLowerCase() === 'team') break;
       if (mlbIsKeyword(l) || isHeaderRow(l)) { i++; continue; }
-      if (isPos(l) || isDecision(l) || isRecord(l)) { i++; continue; }
+      if (isPos(l) || isDecision(l) || isRecord(l)) {
+        // If this position tag marks a substitute, flag the most recently added player
+        if (/^(PH|PR)(-|$)/.test(l) && names.length > 0) {
+          isStarter[names.length - 1] = false;
+        }
+        i++; continue;
+      }
       if (/^\d+-\d+$/.test(l) || /^\d+$/.test(l)) { i++; continue; }
       if (isStatJunk(l)) { i++; continue; }
-      if (isName(l)) names.push(cleanName(l));
+      if (isName(l)) { names.push(cleanName(l)); isStarter.push(true); }
       i++;
     }
     while (i < lines.length && (mlbIsKeyword(lines[i]) || isHeaderRow(lines[i]))) i++;
@@ -2664,12 +2673,20 @@ function mlb_parseMLB(raw) {
     });
 
     for (let j = 0; j < names.length; j++) {
+      const starter = isStarter[j] !== false;
       const cols = (j < playerStats.length ? playerStats[j] : '').split('\t');
       const g = idx => { const v=cols[idx]; return v && /^\d+$/.test(v) ? parseInt(v) : 0; };
-      // AB R H RBI HR BB K
+      // AB R H RBI HR BB K — non-starters get -1 to signal void
       result.batters.push({
         name: (names[j] || '').normalize('NFC'), team,
-        ab: g(0), r: g(1), h: g(2), rbi: g(3), hr: g(4), bb: g(5), k: g(6),
+        starter,
+        ab:  starter ? g(0) : -1,
+        r:   starter ? g(1) : -1,
+        h:   starter ? g(2) : -1,
+        rbi: starter ? g(3) : -1,
+        hr:  starter ? g(4) : -1,
+        bb:  starter ? g(5) : -1,
+        k:   starter ? g(6) : -1,
       });
     }
   }
@@ -2800,19 +2817,24 @@ function mlb_renderSection(title, cls, sub, players, statFn, emptyMsg, threshold
     </div>
     <div class="player-list">`;
 
-  const qualifying = sorted.filter(p => statFn(p).show);
-  if (qualifying.length === 0) {
+  // Non-starters always appear with -1 regardless of statFn
+  const nonStarters = sorted.filter(p => p.starter === false);
+  const qualifying = sorted.filter(p => p.starter !== false && statFn(p).show);
+  const allRows = [...qualifying, ...nonStarters];
+
+  if (allRows.length === 0) {
     html += `<div class="empty-state">${emptyMsg}</div>`;
   } else {
-    qualifying.forEach((p, i) => {
-      const s = statFn(p);
-      const cls2 = s.cls ? s.cls : s.val === 0 ? 'zero' : 'good';
+    allRows.forEach((p, i) => {
+      const isNonStarter = p.starter === false;
+      const s = isNonStarter ? { val: -1, display: '-1' } : statFn(p);
+      const cls2 = isNonStarter ? 'void' : (s.cls ? s.cls : s.val === 0 ? 'zero' : 'good');
       const teamBadge = p.team ? `<span class="p-team">${p.team}</span>` : '';
       html += `<div class="player-row">
         <span class="p-name">${p.name}${teamBadge}</span>
         <span class="p-stat ${cls2}">${s.display}</span>
       </div>`;
-      if (i < qualifying.length - 1) html += `<div class="divider"></div>`;
+      if (i < allRows.length - 1) html += `<div class="divider"></div>`;
     });
   }
   return html + `</div></div>`;
