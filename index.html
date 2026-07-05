@@ -3110,6 +3110,9 @@ function mlb_renderReport(data) {
         // If hrName is "LastName Suffix" (e.g. "Harris II"), the first part IS the last name
         const sfx = new Set(['jr','sr','ii','iii','iv','v']);
         if (hrParts.length >= 2 && hrParts.slice(1).every(p => sfx.has(p.toLowerCase().replace(/\./g,'')))) return true;
+        // Compound surname (e.g. "De La Cruz", "Van Der Meer") — summary gives the full surname,
+        // which equals the batter name minus its leading initial(s)
+        if (stripAccents(b.name.replace(/^(?:[A-Za-z]\.\s*)+/,'').toLowerCase()).trim() === stripAccents(hrName.toLowerCase()).trim()) return true;
         // Multi-word — check first initial agrees
         const bFirst = stripAccents(b.name.split(' ')[0].replace(/\./g,'').toLowerCase());
         const hrFirst = stripAccents(hrParts[0].replace(/\./g,'').toLowerCase());
@@ -3152,6 +3155,10 @@ function mlb_renderReport(data) {
             if (hrGetLast(k) !== pLast) return false;
             const kParts = k.split(' ');
             if (kParts.length === 1) return true;
+            // Compound surname (e.g. "De La Cruz") — match batter surname against the summary surname
+            const pSurname = stripAccents(p.name.replace(/^(?:[A-Za-z]\.\s*)+/,'').toLowerCase()).trim();
+            const kSurname = stripAccents(k.split('|')[0].replace(/^(?:[A-Za-z]\.\s*)+/,'').toLowerCase()).trim();
+            if (pSurname === kSurname) return true;
             const kFirst = stripAccents(kParts[0].replace(/\./g,'').toLowerCase());
             const pFirst = stripAccents(p.name.split(' ')[0].replace(/\./g,'').toLowerCase());
             if (kFirst && pFirst) return kFirst[0] === pFirst[0];
